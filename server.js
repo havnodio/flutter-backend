@@ -47,13 +47,17 @@ const Client = mongoose.model('Client', clientSchema);
 // Authentication Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.header('Authorization');
-  if (!authHeader) return res.status(401).json({ message: 'Aucun jeton fourni' });
+  if (!authHeader) {
+    console.log('No Authorization header provided');
+    return res.status(401).json({ message: 'Aucun jeton fourni' });
+  }
   const token = authHeader.replace('Bearer ', '');
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
+    console.log('Invalid token:', err.message);
     res.status(403).json({ message: 'Jeton invalide' });
   }
 };
@@ -70,6 +74,7 @@ app.post('/api/users/register', async (req, res) => {
     await user.save();
     res.status(201).json({ message: 'Compte créé avec succès' });
   } catch (err) {
+    console.error('Register error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
@@ -84,6 +89,7 @@ app.post('/api/users/login', async (req, res) => {
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.json({ token });
   } catch (err) {
+    console.error('Login error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
@@ -94,6 +100,7 @@ app.get('/api/products', authenticateToken, async (req, res) => {
     const products = await Product.find();
     res.json(products);
   } catch (err) {
+    console.error('Get products error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
@@ -108,6 +115,7 @@ app.post('/api/products', authenticateToken, async (req, res) => {
     await product.save();
     res.status(201).json({ message: 'Produit ajouté', product });
   } catch (err) {
+    console.error('Add product error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
@@ -126,6 +134,7 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
     if (!product) return res.status(404).json({ message: 'Produit non trouvé' });
     res.json({ message: 'Produit modifié', product });
   } catch (err) {
+    console.error('Update product error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
@@ -137,6 +146,7 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     await Product.deleteOne({ _id: req.params.id });
     res.json({ message: 'Produit supprimé' });
   } catch (err) {
+    console.error('Delete product error:', err.message);
     res.status(500).json({ message: 'Erreur lors de la suppression: ' + err.message });
   }
 });
@@ -147,6 +157,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
     const clients = await Client.find();
     res.json(clients);
   } catch (err) {
+    console.error('Get clients error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
@@ -154,6 +165,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
 app.post('/api/clients', authenticateToken, async (req, res) => {
   try {
     const { nom, prenom, raison_sociale, telephone, adresse, code_postal, code_fiscal } = req.body;
+    console.log('Received client data:', req.body); // Debug
     if (!nom || !prenom || !raison_sociale || !telephone || !adresse || !code_postal || !code_fiscal) {
       return res.status(400).json({ message: 'Tous les champs sont requis' });
     }
@@ -161,6 +173,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
     await client.save();
     res.status(201).json({ message: 'Client ajouté', client });
   } catch (err) {
+    console.error('Add client error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
