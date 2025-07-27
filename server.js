@@ -44,6 +44,13 @@ const clientSchema = new mongoose.Schema({
 });
 const Client = mongoose.model('Client', clientSchema);
 
+// Order Schema (Placeholder)
+const orderSchema = new mongoose.Schema({
+  orderId: { type: String, required: true },
+  status: { type: String, required: true },
+});
+const Order = mongoose.model('Order', orderSchema);
+
 // Authentication Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.header('Authorization');
@@ -68,6 +75,10 @@ app.post('/api/users/register', async (req, res) => {
     const { name, surname, email, password } = req.body;
     if (!name || !surname || !email || !password) {
       return res.status(400).json({ message: 'Tous les champs sont requis' });
+    }
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: 'Utilisateur déjà existant' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ name, surname, email, password: hashedPassword });
@@ -165,7 +176,6 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
 app.post('/api/clients', authenticateToken, async (req, res) => {
   try {
     const { nom, prenom, raison_sociale, telephone, adresse, code_postal, code_fiscal } = req.body;
-    console.log('Received client data:', req.body); // Debug
     if (!nom || !prenom || !raison_sociale || !telephone || !adresse || !code_postal || !code_fiscal) {
       return res.status(400).json({ message: 'Tous les champs sont requis' });
     }
@@ -178,5 +188,17 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
   }
 });
 
+// Order Routes (Placeholder)
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const orders = await Order.find();
+    res.json(orders);
+  } catch (err) {
+    console.error('Get orders error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+// Start Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
