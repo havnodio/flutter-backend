@@ -244,35 +244,27 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/orders', authenticateToken, async (req, res) => {
-  try {
-    const { productId, clientId, deliveryDate, paymentType } = req.body;
-    console.log('Received order data:', req.body);
-    if (!productId || !clientId || !deliveryDate || !paymentType) {
-      return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
-    }
-    // Validate product and client exist
-    const product = await Product.findById(productId);
-    const client = await Client.findById(clientId);
-    if (!product) {
-      return res.status(404).json({ message: 'Produit non trouvé' });
-    }
-    if (!client) {
-      return res.status(404).json({ message: 'Client non trouvé' });
-    }
-    // Validate quantity
-    if (product.quantity <= 0) {
-      return res.status(400).json({ message: 'Produit en rupture de stock' });
-    }
-    const order = new Order({ productId, clientId, deliveryDate, paymentType });
-    await order.save();
-    // Decrease product quantity
-    product.quantity -= 1;
-    await product.save();
-    res.status(201).json({ message: 'Commande ajoutée', order });
-  } catch (err) {
-    console.error('Add order error:', err.message);
-    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  const { productId, clientId, clientOrderId, deliveryDate, paymentType } = req.body;
+  console.log('Received order data:', req.body);
+  if (!productId || !clientId || !orderId || !deliveryDate || !paymentType) {
+    return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
   }
+  const product = await Product.findById(productId);
+  const client = await Client.findById(clientId);
+  if (!product) {
+    return res.status(404).json({ message: 'Produit non trouvé' });
+  }
+  if (!clientId) {
+    return res.status(404).json({ message: 'Client non trouvé' });
+  }
+  if (product.quantity <= 0) {
+    return res.status(400).json({ message: 'Produit en rupture de stock' });
+  }
+  const order = new Order({ productId, clientId, clientOrderId, deliveryDate, paymentType: paymentType });
+  await order.save();
+  product.quantity -= 1;
+  await product.save();
+  res.status(201).json({ message: 'Commande ajoutée', order });
 });
 
 app.put('/api/orders/:id', authenticateToken, async (req, res) => {
