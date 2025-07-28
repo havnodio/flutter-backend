@@ -32,7 +32,7 @@ const productSchema = new mongoose.Schema({
 });
 const Product = mongoose.model('Product', productSchema);
 
-// Client Schema (Updated to match ClientsPage.dart)
+// Client Schema
 const clientSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   number: { type: String, required: false },
@@ -41,10 +41,13 @@ const clientSchema = new mongoose.Schema({
 });
 const Client = mongoose.model('Client', clientSchema);
 
-// Order Schema (Placeholder)
+// Order Schema
 const orderSchema = new mongoose.Schema({
-  orderId: { type: String, required: true },
-  status: { type: String, required: true },
+  productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+  clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
+  deliveryDate: { type: Date, required: true },
+  paymentType: { type: String, required: true, enum: ['Cash', 'Credit Card', 'Bank Transfer'] },
+  status: { type: String, required: true, enum: ['Pending', 'Confirmed', 'Delivered'], default: 'Pending' },
 });
 const Order = mongoose.model('Order', orderSchema);
 
@@ -115,7 +118,7 @@ app.get('/api/products', authenticateToken, async (req, res) => {
 app.post('/api/products', authenticateToken, async (req, res) => {
   try {
     const { name, quantity } = req.body;
-    console.log('Received product data:', req.body); // Debug
+    console.log('Received product data:', req.body);
     if (!name || typeof quantity !== 'number' || quantity < 0) {
       return res.status(400).json({ message: 'Nom et quantité requis' });
     }
@@ -131,7 +134,7 @@ app.post('/api/products', authenticateToken, async (req, res) => {
 app.put('/api/products/:id', authenticateToken, async (req, res) => {
   try {
     const { name, quantity } = req.body;
-    console.log('Received update product data:', req.body); // Debug
+    console.log('Received update product data:', req.body);
     if (!name || typeof quantity !== 'number' || quantity < 0) {
       return res.status(400).json({ message: 'Nom et quantité requis' });
     }
@@ -178,7 +181,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
 app.post('/api/clients', authenticateToken, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
-    console.log('Received client data:', req.body); // Debug
+    console.log('Received client data:', req.body);
     if (!fullName || !fiscalNumber) {
       return res.status(400).json({ message: 'Nom complet et numéro fiscal requis' });
     }
@@ -194,7 +197,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
 app.put('/api/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
-    console.log('Received update client data:', req.body); // Debug
+    console.log('Received update client data:', req.body);
     if (!fullName || !fiscalNumber) {
       return res.status(400).json({ message: 'Nom complet et numéro fiscal requis' });
     }
@@ -227,13 +230,91 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Order Routes (Placeholder)
+// Order Routes
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const orders = await Order.find();
+    const orders = await Order.find()
+      .populate('productId', 'name')
+      .populate('clientId', 'fullName');
     res.status(200).json(orders);
   } catch (err) {
     console.error('Get orders error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.post('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const { productId, clientId, deliveryDate, paymentType } = req.body;
+    console.log('Received order data:', req.body);
+    if (!productId || !clientId || !deliveryDate || !paymentType) {
+      return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
+    }
+    // Validate product and client exist
+    const product = await Product.findById(productId);
+    const client = await Client.findById(clientId);
+    if (!product) {
+      return res.status(404).json({ message: 'Produit non trouvé' });
+    }
+    if (!client) {
+      return res.status(404).json({ message: 'Client non trouvé' });
+    }
+    // Validate quantity
+    if (product.quantity <= 0) {
+      return res.status(400).json({ message: 'Produit en rupture de stock' });
+    }
+    const order = new Order({ productId, clientId, deliveryDate, paymentType });
+    await order.save();
+    // Decrease product quantity
+    product.quantity -= 1;
+    await product.save();
+    res.status(201).json({ message: 'Commande ajoutée', order });
+  } catch (err) {
+    console.error('Add order error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.put('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const { productId, clientId, deliveryDate, paymentType, status } = req.body;
+    console.log('Received update order data:', req.body);
+    if (!productId || !clientId || !deliveryDate || !paymentType || !status) {
+      return res.status(400).json({ message: 'Produit, client, date de livraison, type de paiement et statut requis' });
+    }
+    const product = await Product.findById(productId);
+    const client = await Client.findById(clientId);
+    if (!product) {
+      return res.status(404).json({ message: 'Produit non trouvé' });
+    }
+    if (!client) {
+      return res.status(404).json({ message: 'Client non trouvé' });
+    }
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      { productId, clientId, deliveryDate, paymentType, status },
+      { new: true }
+    );
+    if (!order) {
+      return res.status(404).json({ message: 'Commande non trouvée' });
+    }
+    res.status(200).json({ message: 'Commande modifiée', order });
+  } catch (err) {
+    console.error('Update order error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: 'Commande non trouvée' });
+    }
+    await Order.deleteOne({ _id: req.params.id });
+    res.status(200).json({ message: 'Commande supprimée' });
+  } catch (err) {
+    console.error('Delete order error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
