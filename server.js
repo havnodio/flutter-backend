@@ -32,15 +32,12 @@ const productSchema = new mongoose.Schema({
 });
 const Product = mongoose.model('Product', productSchema);
 
-// Client Schema
+// Client Schema (Updated to match ClientsPage.dart)
 const clientSchema = new mongoose.Schema({
-  nom: { type: String, required: true },
-  prenom: { type: String, required: true },
-  raison_sociale: { type: String, required: true },
-  telephone: { type: String, required: true },
-  adresse: { type: String, required: true },
-  code_postal: { type: String, required: true },
-  code_fiscal: { type: String, required: true },
+  fullName: { type: String, required: true },
+  number: { type: String, required: false },
+  email: { type: String, required: false },
+  fiscalNumber: { type: String, required: true },
 });
 const Client = mongoose.model('Client', clientSchema);
 
@@ -180,16 +177,52 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
 
 app.post('/api/clients', authenticateToken, async (req, res) => {
   try {
-    const { nom, prenom, raison_sociale, telephone, adresse, code_postal, code_fiscal } = req.body;
+    const { fullName, number, email, fiscalNumber } = req.body;
     console.log('Received client data:', req.body); // Debug
-    if (!nom || !prenom || !raison_sociale || !telephone || !adresse || !code_postal || !code_fiscal) {
-      return res.status(400).json({ message: 'Tous les champs sont requis' });
+    if (!fullName || !fiscalNumber) {
+      return res.status(400).json({ message: 'Nom complet et numéro fiscal requis' });
     }
-    const client = new Client({ nom, prenom, raison_sociale, telephone, adresse, code_postal, code_fiscal });
+    const client = new Client({ fullName, number, email, fiscalNumber });
     await client.save();
     res.status(201).json({ message: 'Client ajouté', client });
   } catch (err) {
     console.error('Add client error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.put('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const { fullName, number, email, fiscalNumber } = req.body;
+    console.log('Received update client data:', req.body); // Debug
+    if (!fullName || !fiscalNumber) {
+      return res.status(400).json({ message: 'Nom complet et numéro fiscal requis' });
+    }
+    const client = await Client.findByIdAndUpdate(
+      req.params.id,
+      { fullName, number, email, fiscalNumber },
+      { new: true }
+    );
+    if (!client) {
+      return res.status(404).json({ message: 'Client non trouvé' });
+    }
+    res.status(200).json({ message: 'Client modifié', client });
+  } catch (err) {
+    console.error('Update client error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const client = await Client.findById(req.params.id);
+    if (!client) {
+      return res.status(404).json({ message: 'Client non trouvé' });
+    }
+    await Client.deleteOne({ _id: req.params.id });
+    res.status(200).json({ message: 'Client supprimé' });
+  } catch (err) {
+    console.error('Delete client error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
