@@ -9,14 +9,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// User Schema
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   surname: { type: String, required: true },
@@ -25,14 +23,12 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-// Product Schema
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
   quantity: { type: Number, required: true, min: 0 },
 });
 const Product = mongoose.model('Product', productSchema);
 
-// Client Schema
 const clientSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   number: { type: String, required: false },
@@ -41,7 +37,6 @@ const clientSchema = new mongoose.Schema({
 });
 const Client = mongoose.model('Client', clientSchema);
 
-// Order Schema
 const orderSchema = new mongoose.Schema({
   productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
   clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
@@ -51,7 +46,6 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
-// Authentication Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.header('Authorization');
   if (!authHeader) {
@@ -69,7 +63,6 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
-// User Routes
 app.post('/api/users/register', async (req, res) => {
   try {
     const { name, surname, email, password } = req.body;
@@ -104,7 +97,6 @@ app.post('/api/users/login', async (req, res) => {
   }
 });
 
-// Product Routes
 app.get('/api/products', authenticateToken, async (req, res) => {
   try {
     const products = await Product.find();
@@ -167,7 +159,6 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Client Routes
 app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
     const clients = await Client.find();
@@ -230,7 +221,6 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Order Routes
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
     const orders = await Order.find()
@@ -244,27 +234,32 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/orders', authenticateToken, async (req, res) => {
-  const { productId, clientId, clientOrderId, deliveryDate, paymentType } = req.body;
-  console.log('Received order data:', req.body);
-  if (!productId || !clientId || !orderId || !deliveryDate || !paymentType) {
-    return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
+  try {
+    const { productId, clientId, deliveryDate, paymentType } = req.body;
+    console.log('Received order data:', req.body);
+    if (!productId || !clientId || !deliveryDate || !paymentType) {
+      return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
+    }
+    const product = await Product.findById(productId);
+    const client = await Client.findById(clientId);
+    if (!product) {
+      return res.status(404).json({ message: 'Produit non trouvé' });
+    }
+    if (!client) {
+      return res.status(404).json({ message: 'Client non trouvé' });
+    }
+    if (product.quantity <= 0) {
+      return res.status(400).json({ message: 'Produit en rupture de stock' });
+    }
+    const order = new Order({ productId, clientId, deliveryDate, paymentType });
+    await order.save();
+    product.quantity -= 1;
+    await product.save();
+    res.status(201).json({ message: 'Commande ajoutée', order });
+  } catch (err) {
+    console.error('Add order error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
-  const product = await Product.findById(productId);
-  const client = await Client.findById(clientId);
-  if (!product) {
-    return res.status(404).json({ message: 'Produit non trouvé' });
-  }
-  if (!clientId) {
-    return res.status(404).json({ message: 'Client non trouvé' });
-  }
-  if (product.quantity <= 0) {
-    return res.status(400).json({ message: 'Produit en rupture de stock' });
-  }
-  const order = new Order({ productId, clientId, clientOrderId, deliveryDate, paymentType: paymentType });
-  await order.save();
-  product.quantity -= 1;
-  await product.save();
-  res.status(201).json({ message: 'Commande ajoutée', order });
 });
 
 app.put('/api/orders/:id', authenticateToken, async (req, res) => {
