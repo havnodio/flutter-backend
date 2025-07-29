@@ -20,8 +20,19 @@ const userSchema = new mongoose.Schema({
   surname: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' }, // Added role
 });
 const User = mongoose.model('User', userSchema);
+
+const accountRequestSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  surname: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  createdAt: { type: Date, default: Date.now },
+});
+const AccountRequest = mongoose.model('AccountRequest', accountRequestSchema);
 
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -63,16 +74,35 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
+const isAdmin = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ message: 'Accès réservé aux administrateurs' });
+    }
+    next();
+  } catch (err) {
+    console.error('Admin check error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+};
+
 app.post('/api/users/register', async (req, res) => {
   try {
     const { name, surname, email, password } = req.body;
+    console.log('Received account request:', req.body);
     if (!name || !surname || !email || !password) {
       return res.status(400).json({ message: 'Tous les champs sont requis' });
     }
+    const existingRequest = await AccountRequest.findOne({ email });
+    const existingUser = await User.findOne({ email });
+    if (existingRequest || existingUser) {
+      return res.status(400).json({ message: 'Email déjà utilisé' });
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ name, surname, email, password: hashedPassword });
-    await user.save();
-    res.status(201).json({ message: 'Compte créé avec succès' });
+    const request = new AccountRequest({ name, surname, email, password: hashedPassword });
+    await request.save();
+    res.status(201).json({ message: 'Demande de compte soumise, en attente d\'approbation' });
   } catch (err) {
     console.error('Register error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
@@ -89,10 +119,64 @@ app.post('/api/users/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
     }
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ token });
   } catch (err) {
     console.error('Login error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const requests = await AccountRequest.find();
+    res.status(200).json(requests);
+  } catch (err) {
+    console.error('Get account requests error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.post('/api/account-requests/:id/approve', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const request = await AccountRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ message: 'Demande non trouvée' });
+    }
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: 'Demande déjà traitée' });
+    }
+    const user = new User({
+      name: request.name,
+      surname: request.surname,
+      email: request.email,
+      password: request.password,
+      role: 'user',
+    });
+    await user.save();
+    request.status = 'approved';
+    await request.save();
+    res.status(200).json({ message: 'Compte approuvé et créé' });
+  } catch (err) {
+    console.error('Approve account error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
+app.post('/api/account-requests/:id/reject', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const request = await AccountRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ message: 'Demande non trouvée' });
+    }
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: 'Demande déjà traitée' });
+    }
+    request.status = 'rejected';
+    await request.save();
+    res.status(200).json({ message: 'Demande rejetée' });
+  } catch (err) {
+    console.error('Reject account error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
