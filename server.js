@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
   surname: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['user', 'admin'], default: 'user' }, // Added role
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
 });
 const User = mongoose.model('User', userSchema);
 
@@ -90,14 +90,23 @@ const isAdmin = async (req, res, next) => {
 app.post('/api/users/register', async (req, res) => {
   try {
     const { name, surname, email, password } = req.body;
-    console.log('Received account request:', req.body);
+    console.log('Received account request:', { name, surname, email, password: '[hidden]' });
     if (!name || !surname || !email || !password) {
-      return res.status(400).json({ message: 'Tous les champs sont requis' });
+      return res.status(400).json({ message: 'Nom, prénom, email et mot de passe sont requis' });
+    }
+    if (!email.includes('@')) {
+      return res.status(400).json({ message: 'Email invalide' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères' });
     }
     const existingRequest = await AccountRequest.findOne({ email });
     const existingUser = await User.findOne({ email });
-    if (existingRequest || existingUser) {
-      return res.status(400).json({ message: 'Email déjà utilisé' });
+    if (existingRequest) {
+      return res.status(400).json({ message: 'Une demande de compte existe déjà pour cet email' });
+    }
+    if (existingUser) {
+      return res.status(400).json({ message: 'Un compte utilisateur existe déjà pour cet email' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
     const request = new AccountRequest({ name, surname, email, password: hashedPassword });
@@ -112,11 +121,18 @@ app.post('/api/users/register', async (req, res) => {
 app.post('/api/users/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log('Login attempt:', { email, password: '[hidden]' });
     if (!email || !password) {
       return res.status(400).json({ message: 'Email et mot de passe requis' });
     }
     const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    if (!user) {
+      console.log('User not found:', email);
+      return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      console.log('Password mismatch for:', email);
       return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
     }
     const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
@@ -127,9 +143,30 @@ app.post('/api/users/login', async (req, res) => {
   }
 });
 
+app.post('/api/users/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    console.log('Reset password attempt:', { email, newPassword: '[hidden]' });
+    if (!email || !newPassword || newPassword.length < 6) {
+      return res.status(400).json({ message: 'Email et mot de passe (6+ caractères) requis' });
+    }
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+    res.status(200).json({ message: 'Mot de passe réinitialisé avec succès' });
+  } catch (err) {
+    console.error('Reset password error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
 app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const requests = await AccountRequest.find();
+    const requests = await AccountRequest.find().sort({ createdAt: -1 });
     res.status(200).json(requests);
   } catch (err) {
     console.error('Get account requests error:', err.message);
@@ -145,6 +182,10 @@ app.post('/api/account-requests/:id/approve', authenticateToken, isAdmin, async 
     }
     if (request.status !== 'pending') {
       return res.status(400).json({ message: 'Demande déjà traitée' });
+    }
+    const existingUser = await User.findOne({ email: request.email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Un compte utilisateur existe déjà pour cet email' });
     }
     const user = new User({
       name: request.name,
@@ -181,6 +222,17 @@ app.post('/api/account-requests/:id/reject', authenticateToken, isAdmin, async (
   }
 });
 
+app.delete('/api/account-requests/cleanup', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    await AccountRequest.deleteMany({ status: 'rejected', createdAt: { $lt: thirtyDaysAgo } });
+    res.status(200).json({ message: 'Anciennes demandes rejetées supprimées' });
+  } catch (err) {
+    console.error('Cleanup requests error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
 app.get('/api/products', authenticateToken, async (req, res) => {
   try {
     const products = await Product.find();
@@ -194,7 +246,7 @@ app.get('/api/products', authenticateToken, async (req, res) => {
 app.post('/api/products', authenticateToken, async (req, res) => {
   try {
     const { name, quantity } = req.body;
-    console.log('Received product data:', req.body);
+    console.log('Received product data:', { name, quantity });
     if (!name || typeof quantity !== 'number' || quantity < 0) {
       return res.status(400).json({ message: 'Nom et quantité requis' });
     }
@@ -210,7 +262,7 @@ app.post('/api/products', authenticateToken, async (req, res) => {
 app.put('/api/products/:id', authenticateToken, async (req, res) => {
   try {
     const { name, quantity } = req.body;
-    console.log('Received update product data:', req.body);
+    console.log('Received update product data:', { name, quantity });
     if (!name || typeof quantity !== 'number' || quantity < 0) {
       return res.status(400).json({ message: 'Nom et quantité requis' });
     }
@@ -256,7 +308,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
 app.post('/api/clients', authenticateToken, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
-    console.log('Received client data:', req.body);
+    console.log('Received client data:', { fullName, number, email, fiscalNumber });
     if (!fullName || !fiscalNumber) {
       return res.status(400).json({ message: 'Nom complet et numéro fiscal requis' });
     }
@@ -272,7 +324,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
 app.put('/api/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
-    console.log('Received update client data:', req.body);
+    console.log('Received update client data:', { fullName, number, email, fiscalNumber });
     if (!fullName || !fiscalNumber) {
       return res.status(400).json({ message: 'Nom complet et numéro fiscal requis' });
     }
@@ -320,7 +372,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 app.post('/api/orders', authenticateToken, async (req, res) => {
   try {
     const { productId, clientId, deliveryDate, paymentType } = req.body;
-    console.log('Received order data:', req.body);
+    console.log('Received order data:', { productId, clientId, deliveryDate, paymentType });
     if (!productId || !clientId || !deliveryDate || !paymentType) {
       return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
     }
@@ -349,10 +401,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 app.put('/api/orders/:id', authenticateToken, async (req, res) => {
   try {
     const { productId, clientId, deliveryDate, paymentType, status } = req.body;
-    console.log('Received update order data:', req.body);
-    if (!productId || !clientId || !deliveryDate || !paymentType || !status) {
-      return res.status(400).json({ message: 'Produit, client, date de livraison, type de paiement et statut requis' });
-    }
+    console.log('Received update order data:', { productId, clientId, deliveryDate, paymentType, status });
+
     const product = await Product.findById(productId);
     const client = await Client.findById(clientId);
     if (!product) {
@@ -361,14 +411,17 @@ app.put('/api/orders/:id', authenticateToken, async (req, res) => {
     if (!client) {
       return res.status(404).json({ message: 'Client non trouvé' });
     }
+
     const order = await Order.findByIdAndUpdate(
       req.params.id,
       { productId, clientId, deliveryDate, paymentType, status },
       { new: true }
     );
+
     if (!order) {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
+
     res.status(200).json({ message: 'Commande modifiée', order });
   } catch (err) {
     console.error('Update order error:', err.message);
@@ -382,6 +435,7 @@ app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
     if (!order) {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
+
     await Order.deleteOne({ _id: req.params.id });
     res.status(200).json({ message: 'Commande supprimée' });
   } catch (err) {
@@ -390,5 +444,8 @@ app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Start the server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
