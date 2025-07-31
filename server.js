@@ -25,14 +25,12 @@ mongoose.connect(process.env.MONGODB_URI, {
 }).then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// Nodemailer configuration for ProtonMail
+// Nodemailer configuration for Gmail
 const transporter = nodemailer.createTransport({
-  host: 'smtp.proton.me', // Updated to correct ProtonMail SMTP server
-  port: 587,
-  secure: false, // Use STARTTLS
+  service: 'gmail', // Use Gmail service
   auth: {
-    user: 'metjihed@gmail.com',
-    pass: 'xstp vyjs xahh stkc', // Replace with ProtonMail App Password
+    user: 'metjihed@gmail.com', // Replace with your Gmail address
+    pass: 'xstp vyjs xahh stkc', // Replace with the App Password
   },
 });
 
@@ -134,7 +132,7 @@ router.post('/users/reset-password-request', async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: 'jihedIIVII@proton.me',
+        from: 'metjihed@gmail.com', // Replace with your Gmail address
         to: email,
         subject: 'Password Reset Code',
         text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
