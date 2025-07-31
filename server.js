@@ -18,6 +18,7 @@ router.get('/test', (req, res) => {
 });
 
 // MongoDB connection
+mongoose.set('strictQuery', true); // Suppress deprecation warning
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -26,12 +27,12 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // Nodemailer configuration for ProtonMail
 const transporter = nodemailer.createTransport({
-  host: 'mail.proton.me',
+  host: 'mail.proton.me', // Updated to correct ProtonMail SMTP server
   port: 587,
   secure: false, // Use STARTTLS
   auth: {
     user: 'jihedIIVII@proton.me',
-    pass: 'Helloimtroll:3', // Replace with ProtonMail App Password
+    pass: 'your-app-password', // Replace with ProtonMail App Password
   },
 });
 
@@ -131,15 +132,19 @@ router.post('/users/reset-password-request', async (req, res) => {
     user.resetCodeExpires = Date.now() + 3600000; // Expires in 1 hour
     await user.save();
 
-    await transporter.sendMail({
-      from: 'jihedIIVII@proton.me',
-      to: email,
-      subject: 'Password Reset Code',
-      text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
-    });
-
-    console.log(`Reset code sent: { email: "${email}", code: "${resetCode}" }`);
-    res.status(200).json({ message: 'Code sent to email' });
+    try {
+      await transporter.sendMail({
+        from: 'jihedIIVII@proton.me',
+        to: email,
+        subject: 'Password Reset Code',
+        text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
+      });
+      console.log(`Reset code sent: { email: "${email}", code: "${resetCode}" }`);
+      res.status(200).json({ message: 'Code sent to email' });
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      res.status(500).json({ message: 'Failed to send email, but code saved' });
+    }
   } catch (error) {
     console.error('Reset password request error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
