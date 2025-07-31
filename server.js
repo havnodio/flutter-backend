@@ -10,14 +10,38 @@ const app = express();
 const router = express.Router();
 app.use(cors());
 app.use(express.json());
-app.use('/api', router); // Mount router for /api routes
+app.use('/api', router);
 
+// Test route for debugging
+router.get('/test', (req, res) => {
+  res.status(200).json({ message: 'Server is running' });
+});
+
+// MongoDB connection
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+// Nodemailer configuration for ProtonMail
+const transporter = nodemailer.createTransport({
+  host: 'smtp.proton.me',
+  port: 587,
+  secure: false, // Use STARTTLS
+  auth: {
+    user: 'jihedIIVII@proton.me',
+    pass: 'Helloimtroll:3', // Replace with ProtonMail App Password
+  },
+});
+
+// Verify SMTP connection
+transporter.verify((error, success) => {
+  if (error) console.error('SMTP error:', error);
+  else console.log('SMTP server ready');
+});
+
+// Schemas
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   surname: { type: String, required: true },
@@ -62,6 +86,7 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
+// Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.header('Authorization');
   if (!authHeader) {
@@ -92,18 +117,7 @@ const isAdmin = async (req, res, next) => {
   }
 };
 
-// Nodemailer configuration for ProtonMail
-const transporter = nodemailer.createTransport({
-  host: 'smtp.proton.me',
-  port: 587,
-  secure: false, // Use STARTTLS
-  auth: {
-    user: 'jihedIIVII@proton.me',
-    pass: 'Helloimtroll:3', // Ensure this is your ProtonMail password or App Password
-  },
-});
-
-// Request password reset code
+// Password Reset Routes
 router.post('/users/reset-password-request', async (req, res) => {
   const { email } = req.body;
   try {
@@ -132,7 +146,6 @@ router.post('/users/reset-password-request', async (req, res) => {
   }
 });
 
-// Verify reset code
 router.post('/users/verify-reset-code', async (req, res) => {
   const { email, code } = req.body;
   try {
@@ -151,7 +164,6 @@ router.post('/users/verify-reset-code', async (req, res) => {
   }
 });
 
-// Reset password
 router.post('/users/reset-password', async (req, res) => {
   const { email, newPassword } = req.body;
   try {
@@ -171,7 +183,7 @@ router.post('/users/reset-password', async (req, res) => {
   }
 });
 
-// Register
+// Other Routes
 router.post('/users/register', async (req, res) => {
   try {
     const { name, surname, email, password } = req.body;
@@ -203,7 +215,6 @@ router.post('/users/register', async (req, res) => {
   }
 });
 
-// Login
 router.post('/users/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -229,7 +240,6 @@ router.post('/users/login', async (req, res) => {
   }
 });
 
-// Account Requests
 router.get('/account-requests', authenticateToken, isAdmin, async (req, res) => {
   try {
     const requests = await AccountRequest.find().sort({ createdAt: -1 });
@@ -299,7 +309,6 @@ router.delete('/account-requests/cleanup', authenticateToken, isAdmin, async (re
   }
 });
 
-// Products
 router.get('/products', authenticateToken, async (req, res) => {
   try {
     const products = await Product.find();
@@ -362,7 +371,6 @@ router.delete('/products/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Clients
 router.get('/clients', authenticateToken, async (req, res) => {
   try {
     const clients = await Client.find();
@@ -425,7 +433,6 @@ router.delete('/clients/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Orders
 router.get('/orders', authenticateToken, async (req, res) => {
   try {
     const orders = await Order.find()
@@ -503,11 +510,16 @@ router.delete('/orders/:id', authenticateToken, async (req, res) => {
     if (!order) {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
-    
     await Order.deleteOne({ _id: req.params.id });
     res.status(200).json({ message: 'Commande supprimée' });
   } catch (err) {
     console.error('Delete order error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
+});
+
+// Start the server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
