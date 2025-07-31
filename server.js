@@ -7,8 +7,10 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
+const router = express.Router();
 app.use(cors());
 app.use(express.json());
+app.use('/api', router); // Mount router for /api routes
 
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
@@ -90,7 +92,87 @@ const isAdmin = async (req, res, next) => {
   }
 };
 
-app.post('/api/users/register', async (req, res) => {
+// Nodemailer configuration for ProtonMail
+const transporter = nodemailer.createTransport({
+  host: 'smtp.proton.me',
+  port: 587,
+  secure: false, // Use STARTTLS
+  auth: {
+    user: 'jihedIIVII@proton.me',
+    pass: 'Helloimtroll:3', // Ensure this is your ProtonMail password or App Password
+  },
+});
+
+// Request password reset code
+router.post('/users/reset-password-request', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.resetCode = resetCode;
+    user.resetCodeExpires = Date.now() + 3600000; // Expires in 1 hour
+    await user.save();
+
+    await transporter.sendMail({
+      from: 'jihedIIVII@proton.me',
+      to: email,
+      subject: 'Password Reset Code',
+      text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
+    });
+
+    console.log(`Reset code sent: { email: "${email}", code: "${resetCode}" }`);
+    res.status(200).json({ message: 'Code sent to email' });
+  } catch (error) {
+    console.error('Reset password request error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Verify reset code
+router.post('/users/verify-reset-code', async (req, res) => {
+  const { email, code } = req.body;
+  try {
+    const user = await User.findOne({
+      email,
+      resetCode: code,
+      resetCodeExpires: { $gt: Date.now() },
+    });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired code' });
+    }
+    res.status(200).json({ message: 'Code verified' });
+  } catch (error) {
+    console.error('Verify code error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Reset password
+router.post('/users/reset-password', async (req, res) => {
+  const { email, newPassword } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetCode = undefined;
+    user.resetCodeExpires = undefined;
+    await user.save();
+    console.log(`Password reset successful: ${email}`);
+    res.status(200).json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Register
+router.post('/users/register', async (req, res) => {
   try {
     const { name, surname, email, password } = req.body;
     console.log('Received account request:', { name, surname, email, password: '[hidden]' });
@@ -121,7 +203,8 @@ app.post('/api/users/register', async (req, res) => {
   }
 });
 
-app.post('/api/users/login', async (req, res) => {
+// Login
+router.post('/users/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     console.log('Login attempt:', { email, password: '[hidden]' });
@@ -146,83 +229,8 @@ app.post('/api/users/login', async (req, res) => {
   }
 });
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'jihedIIVII@proton.me',
-    pass: 'Helloimtroll:3',
-  },
-});
-
-router.post('/api/users/reset-password-request', async (req, res) => {
-  const { email } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: 'Email not found' });
-    }
-
-    const resetCode = crypto.randomInt(100000, 999999).toString();
-    user.resetCode = resetCode;
-    user.resetCodeExpires = Date.now() + 3600000; // Expires in 1 hour
-    await user.save();
-
-    await transporter.sendMail({
-      to: email,
-      subject: 'Password Reset Code',
-      text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
-    });
-
-    console.log(`Reset code sent: { email: "${email}", code: "${resetCode}" }`);
-    res.status(200).json({ message: 'Code sent to email' });
-  } catch (error) {
-    console.error('Reset password request error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-router.post('/api/users/verify-reset-code', async (req, res) => {
-  const { email, code } = req.body;
-  try {
-    const user = await User.findOne({
-      email,
-      resetCode: code,
-      resetCodeExpires: { $gt: Date.now() },
-    });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid or expired code' });
-    }
-    res.status(200).json({ message: 'Code verified' });
-  } catch (error) {
-    console.error('Verify code error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Reset password
-router.post('/api/users/reset-password', async (req, res) => {
-  const { email, newPassword } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: 'Email not found' });
-    }
-    user.password = newPassword; // Ensure password is hashed in your User model
-    user.resetCode = undefined;
-    user.resetCodeExpires = undefined;
-    await user.save();
-    console.log(`Password reset successful: ${email}`);
-    res.status(200).json({ message: 'Password reset successfully' });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-module.exports = router;
-
-
-app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) => {
+// Account Requests
+router.get('/account-requests', authenticateToken, isAdmin, async (req, res) => {
   try {
     const requests = await AccountRequest.find().sort({ createdAt: -1 });
     res.status(200).json(requests);
@@ -232,7 +240,7 @@ app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) =>
   }
 });
 
-app.post('/api/account-requests/:id/approve', authenticateToken, isAdmin, async (req, res) => {
+router.post('/account-requests/:id/approve', authenticateToken, isAdmin, async (req, res) => {
   try {
     const request = await AccountRequest.findById(req.params.id);
     if (!request) {
@@ -262,7 +270,7 @@ app.post('/api/account-requests/:id/approve', authenticateToken, isAdmin, async 
   }
 });
 
-app.post('/api/account-requests/:id/reject', authenticateToken, isAdmin, async (req, res) => {
+router.post('/account-requests/:id/reject', authenticateToken, isAdmin, async (req, res) => {
   try {
     const request = await AccountRequest.findById(req.params.id);
     if (!request) {
@@ -280,7 +288,7 @@ app.post('/api/account-requests/:id/reject', authenticateToken, isAdmin, async (
   }
 });
 
-app.delete('/api/account-requests/cleanup', authenticateToken, isAdmin, async (req, res) => {
+router.delete('/account-requests/cleanup', authenticateToken, isAdmin, async (req, res) => {
   try {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     await AccountRequest.deleteMany({ status: 'rejected', createdAt: { $lt: thirtyDaysAgo } });
@@ -291,7 +299,8 @@ app.delete('/api/account-requests/cleanup', authenticateToken, isAdmin, async (r
   }
 });
 
-app.get('/api/products', authenticateToken, async (req, res) => {
+// Products
+router.get('/products', authenticateToken, async (req, res) => {
   try {
     const products = await Product.find();
     res.status(200).json(products);
@@ -301,7 +310,7 @@ app.get('/api/products', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/products', authenticateToken, async (req, res) => {
+router.post('/products', authenticateToken, async (req, res) => {
   try {
     const { name, quantity } = req.body;
     console.log('Received product data:', { name, quantity });
@@ -317,7 +326,7 @@ app.post('/api/products', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/products/:id', authenticateToken, async (req, res) => {
+router.put('/products/:id', authenticateToken, async (req, res) => {
   try {
     const { name, quantity } = req.body;
     console.log('Received update product data:', { name, quantity });
@@ -339,7 +348,7 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/products/:id', authenticateToken, async (req, res) => {
+router.delete('/products/:id', authenticateToken, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
@@ -353,7 +362,8 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/clients', authenticateToken, async (req, res) => {
+// Clients
+router.get('/clients', authenticateToken, async (req, res) => {
   try {
     const clients = await Client.find();
     res.status(200).json(clients);
@@ -361,15 +371,9 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
     console.error('Get clients error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
-  try {
-    const count = await Client.countDocuments();
-    res.status(200).json({ count });
-  } catch (err) {
-    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
-  }
 });
 
-app.post('/api/clients', authenticateToken, async (req, res) => {
+router.post('/clients', authenticateToken, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
     console.log('Received client data:', { fullName, number, email, fiscalNumber });
@@ -385,7 +389,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/clients/:id', authenticateToken, async (req, res) => {
+router.put('/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
     console.log('Received update client data:', { fullName, number, email, fiscalNumber });
@@ -407,7 +411,7 @@ app.put('/api/clients/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
+router.delete('/clients/:id', authenticateToken, async (req, res) => {
   try {
     const client = await Client.findById(req.params.id);
     if (!client) {
@@ -421,7 +425,8 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/orders', authenticateToken, async (req, res) => {
+// Orders
+router.get('/orders', authenticateToken, async (req, res) => {
   try {
     const orders = await Order.find()
       .populate('productId', 'name')
@@ -433,7 +438,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/orders', authenticateToken, async (req, res) => {
+router.post('/orders', authenticateToken, async (req, res) => {
   try {
     const { productId, clientId, deliveryDate, paymentType } = req.body;
     console.log('Received order data:', { productId, clientId, deliveryDate, paymentType });
@@ -462,11 +467,13 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/orders/:id', authenticateToken, async (req, res) => {
+router.put('/orders/:id', authenticateToken, async (req, res) => {
   try {
     const { productId, clientId, deliveryDate, paymentType, status } = req.body;
     console.log('Received update order data:', { productId, clientId, deliveryDate, paymentType, status });
-
+    if (!productId || !clientId || !deliveryDate || !paymentType) {
+      return res.status(400).json({ message: 'Produit, client, date de livraison et type de paiement requis' });
+    }
     const product = await Product.findById(productId);
     const client = await Client.findById(clientId);
     if (!product) {
@@ -475,17 +482,14 @@ app.put('/api/orders/:id', authenticateToken, async (req, res) => {
     if (!client) {
       return res.status(404).json({ message: 'Client non trouvé' });
     }
-
     const order = await Order.findByIdAndUpdate(
       req.params.id,
       { productId, clientId, deliveryDate, paymentType, status },
       { new: true }
     );
-
     if (!order) {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
-
     res.status(200).json({ message: 'Commande modifiée', order });
   } catch (err) {
     console.error('Update order error:', err.message);
@@ -493,23 +497,16 @@ app.put('/api/orders/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
+router.delete('/orders/:id', authenticateToken, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
-
     await Order.deleteOne({ _id: req.params.id });
     res.status(200).json({ message: 'Commande supprimée' });
   } catch (err) {
     console.error('Delete order error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
-});
-
-// Start the server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
 });
