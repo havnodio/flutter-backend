@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -21,6 +22,8 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  resetCode: String,
+  resetCodeExpires: Date,
 });
 const User = mongoose.model('User', userSchema);
 
@@ -143,26 +146,81 @@ app.post('/api/users/login', async (req, res) => {
   }
 });
 
-app.post('/api/users/reset-password', async (req, res) => {
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'jihedIIVII@proton.me',
+    pass: 'Helloimtroll:3',
+  },
+});
+
+router.post('/api/users/reset-password-request', async (req, res) => {
+  const { email } = req.body;
   try {
-    const { email, newPassword } = req.body;
-    console.log('Reset password attempt:', { email, newPassword: '[hidden]' });
-    if (!email || !newPassword || newPassword.length < 6) {
-      return res.status(400).json({ message: 'Email et mot de passe (6+ caractères) requis' });
-    }
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+      return res.status(404).json({ message: 'Email not found' });
     }
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
+
+    const resetCode = crypto.randomInt(100000, 999999).toString();
+    user.resetCode = resetCode;
+    user.resetCodeExpires = Date.now() + 3600000; // Expires in 1 hour
     await user.save();
-    res.status(200).json({ message: 'Mot de passe réinitialisé avec succès' });
-  } catch (err) {
-    console.error('Reset password error:', err.message);
-    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+
+    await transporter.sendMail({
+      to: email,
+      subject: 'Password Reset Code',
+      text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
+    });
+
+    console.log(`Reset code sent: { email: "${email}", code: "${resetCode}" }`);
+    res.status(200).json({ message: 'Code sent to email' });
+  } catch (error) {
+    console.error('Reset password request error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
+
+router.post('/api/users/verify-reset-code', async (req, res) => {
+  const { email, code } = req.body;
+  try {
+    const user = await User.findOne({
+      email,
+      resetCode: code,
+      resetCodeExpires: { $gt: Date.now() },
+    });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired code' });
+    }
+    res.status(200).json({ message: 'Code verified' });
+  } catch (error) {
+    console.error('Verify code error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Reset password
+router.post('/api/users/reset-password', async (req, res) => {
+  const { email, newPassword } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+    user.password = newPassword; // Ensure password is hashed in your User model
+    user.resetCode = undefined;
+    user.resetCodeExpires = undefined;
+    await user.save();
+    console.log(`Password reset successful: ${email}`);
+    res.status(200).json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+module.exports = router;
+
 
 app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) => {
   try {
@@ -301,6 +359,12 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
     res.status(200).json(clients);
   } catch (err) {
     console.error('Get clients error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+  try {
+    const count = await Client.countDocuments();
+    res.status(200).json({ count });
+  } catch (err) {
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
 });
