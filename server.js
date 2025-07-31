@@ -503,6 +503,7 @@ router.delete('/orders/:id', authenticateToken, async (req, res) => {
     if (!order) {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
+    
     await Order.deleteOne({ _id: req.params.id });
     res.status(200).json({ message: 'Commande supprimée' });
   } catch (err) {
