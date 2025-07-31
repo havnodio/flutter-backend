@@ -26,7 +26,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // Nodemailer configuration for ProtonMail
 const transporter = nodemailer.createTransport({
-  host: 'smtp.proton.me',
+  host: 'mail.proton.me',
   port: 587,
   secure: false, // Use STARTTLS
   auth: {
