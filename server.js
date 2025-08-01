@@ -161,6 +161,19 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+app.get('/api/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json(user);
+  } catch (err) {
+    console.error('/api/me error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
 app.post('/api/users/register', async (req, res) => {
   try {
     const { name, surname, email, password } = req.body;
