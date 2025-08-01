@@ -18,7 +18,7 @@ router.get('/test', (req, res) => {
 });
 
 // MongoDB connection
-mongoose.set('strictQuery', true); // Suppress deprecation warning
+mongoose.set('strictQuery', true);
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -27,10 +27,10 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // Nodemailer configuration for Gmail
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // Use Gmail service
+  service: 'gmail',
   auth: {
-    user: 'metjihed@gmail.com', // Replace with your Gmail address
-    pass: 'xstp vyjs xahh stkc', // Replace with the App Password
+    user: 'metjihed@gmail.com',
+    pass: 'xstp vyjs xahh stkc',
   },
 });
 
@@ -116,6 +116,28 @@ const isAdmin = async (req, res, next) => {
   }
 };
 
+// Dashboard Route
+router.get('/dashboard', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const [clients, orders, products] = await Promise.all([
+      Client.countDocuments(),
+      Order.countDocuments({ status: 'Pending' }),
+      Product.aggregate([
+        { $group: { _id: null, totalStock: { $sum: '$quantity' } } },
+      ]),
+    ]);
+    const totalStock = products.length > 0 ? products[0].totalStock : 0;
+    res.status(200).json({
+      totalClients: clients,
+      pendingOrders: orders,
+      productsInStock: totalStock,
+    });
+  } catch (err) {
+    console.error('Dashboard error:', err.message);
+    res.status(500).json({ message: 'Erreur serveur: ' + err.message });
+  }
+});
+
 // Password Reset Routes
 router.post('/users/reset-password-request', async (req, res) => {
   const { email } = req.body;
@@ -132,7 +154,7 @@ router.post('/users/reset-password-request', async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: 'metjihed@gmail.com', // Replace with your Gmail address
+        from: '"Your App Name" <metjihed@gmail.com>', // Friendly display name
         to: email,
         subject: 'Password Reset Code',
         text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
@@ -310,107 +332,6 @@ router.delete('/account-requests/cleanup', authenticateToken, isAdmin, async (re
     console.error('Cleanup requests error:', err.message);
     res.status(500).json({ message: 'Erreur serveur: ' + err.message });
   }
-});
-// Dashboard Metrics Route
-router.get('/dashboard/metrics', authenticateToken, async (req, res) => {
-    try {
-        // Get current date for monthly calculations
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-        // Fetch all required data concurrently
-        const [clients, orders, products, accountRequests] = await Promise.all([
-            Client.find(),
-            Order.find().populate('productId clientId'),
-            Product.find(),
-            AccountRequest.find({ status: 'pending' })
-        ]);
-
-        // Calculate metrics
-        const metrics = {
-            totalClients: clients.length,
-            activeClients: clients.length, // Add a status field to Client model if needed
-            
-            totalOrders: orders.length,
-            pendingOrders: orders.filter(order => order.status === 'Pending').length,
-            completedOrders: orders.filter(order => order.status === 'Delivered').length,
-            monthlyOrders: orders.filter(order => new Date(order.deliveryDate) >= startOfMonth).length,
-            
-            totalProducts: products.length,
-            productsInStock: products.reduce((sum, product) => sum + product.quantity, 0),
-            lowStockProducts: products.filter(product => product.quantity < 10).length,
-            outOfStockProducts: products.filter(product => product.quantity === 0).length,
-            
-            pendingAccountRequests: accountRequests.length,
-            
-            // Calculate total revenue (assuming you add a price field to products)
-            totalRevenue: orders
-                .filter(order => order.status === 'Delivered')
-                .reduce((sum, order) => sum + (order.productId?.price || 0), 0)
-        };
-
-        res.status(200).json(metrics);
-    } catch (err) {
-        console.error('Dashboard metrics error:', err.message);
-        res.status(500).json({ message: 'Erreur serveur: ' + err.message });
-    }
-});
-router.get('/products/low-stock', authenticateToken, async (req, res) => {
-    try {
-        const lowStockProducts = await Product.find({ quantity: { $lt: 10 } });
-        res.status(200).json(lowStockProducts);
-    } catch (err) {
-        console.error('Low stock products error:', err.message);
-        res.status(500).json({ message: 'Erreur serveur: ' + err.message });
-    }
-});
-router.get('/orders/pending', authenticateToken, async (req, res) => {
-    try {
-        const pendingOrders = await Order.find({ status: 'Pending' })
-            .populate('productId')
-            .populate('clientId');
-        res.status(200).json(pendingOrders);
-    } catch (err) {
-        console.error('Pending orders error:', err.message);
-        res.status(500).json({ message: 'Erreur serveur: ' + err.message });
-    }
-});
-
-// Add route for monthly statistics
-router.get('/statistics/monthly', authenticateToken, async (req, res) => {
-    try {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        
-        const monthlyStats = await Order.aggregate([
-            {
-                $match: {
-                    deliveryDate: { $gte: startOfMonth }
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    totalOrders: { $sum: 1 },
-                    completedOrders: {
-                        $sum: { $cond: [{ $eq: ['$status', 'Delivered'] }, 1, 0] }
-                    },
-                    pendingOrders: {
-                        $sum: { $cond: [{ $eq: ['$status', 'Pending'] }, 1, 0] }
-                    }
-                }
-            }
-        ]);
-
-        res.status(200).json(monthlyStats[0] || {
-            totalOrders: 0,
-            completedOrders: 0,
-            pendingOrders: 0
-        });
-    } catch (err) {
-        console.error('Monthly statistics error:', err.message);
-        res.status(500).json({ message: 'Erreur serveur: ' + err.message });
-    }
 });
 
 router.get('/products', authenticateToken, async (req, res) => {
