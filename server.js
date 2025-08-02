@@ -3,9 +3,8 @@ const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-require('dotenv').config();
 const nodemailer = require('nodemailer');
-
+require('dotenv').config();
 
 const app = express();
 app.use(cors({ origin: '*' })); // Explicitly allow all origins
@@ -45,23 +44,17 @@ mongoose.connection.on('disconnected', () => {
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL,
-    pass: process.env.EMAIL_PASSWORD,
+    user: process.env.EMAIL || 'metjihed@gmail.com',
+    pass: process.env.EMAIL_PASSWORD || 'xstp vyjs xahh stkc'
   },
 });
 
-const mailOptions = {
-  from: process.env.EMAIL,
-  to: process.env.EMAIL,
-  subject: 'Test Email from Node.js',
-  text: 'Hello! This is a test email.',
-};
-
-transporter.sendMail(mailOptions, (error, info) => {
+// Verify SMTP connection on startup
+transporter.verify((error, success) => {
   if (error) {
-    console.error('Error sending test email:', error);
+    console.error('SMTP configuration error:', error);
   } else {
-    console.log('Test email sent:', info.response);
+    console.log('SMTP server ready to send emails');
   }
 });
 
@@ -212,37 +205,57 @@ app.post('/api/users/register', async (req, res) => {
   }
 });
 
+// Password Reset Endpoints
 app.post('/api/users/reset-password-request', async (req, res) => {
   const { email } = req.body;
   try {
-    console.log('Reset password request for email:', email);
     const user = await User.findOne({ email });
     if (!user) {
-      console.log('User not found:', email);
-      return res.status(404).json({ message: 'Email not found' });
+      return res.status(404).json({ message: 'If this email exists, a reset code has been sent' });
     }
+
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetCode = resetCode;
     user.resetCodeExpires = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    console.log('Sending reset code email with code:', resetCode);
-    await transporter.sendMail({
-      from: process.env.EMAIL,
-      to: email,
-      subject: 'Password Reset Code',
-      text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
-    });
+    try {
+      const mailOptions = {
+        from: `"Your App Name" <${process.env.EMAIL}>`,
+        to: email,
+        subject: 'Password Reset Code',
+        text: `Your password reset code is: ${resetCode}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2d3748;">Password Reset Request</h2>
+            <p>Your password reset code is:</p>
+            <div style="background: #f7fafc; border: 1px solid #e2e8f0; padding: 16px; 
+                        font-size: 24px; font-weight: bold; text-align: center; margin: 16px 0;">
+              ${resetCode}
+            </div>
+            <p>This code will expire in 1 hour.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+          </div>
+        `
+      };
 
-    console.log('Email sent successfully to:', email);
-    res.status(200).json({ message: 'Code sent to email' });
+      await transporter.sendMail(mailOptions);
+      console.log(`Reset code sent to ${email}`);
+      res.status(200).json({ message: 'Reset code sent to email' });
+    } catch (emailError) {
+      console.error('Email sending failed:', emailError);
+      user.resetCode = undefined;
+      user.resetCodeExpires = undefined;
+      await user.save();
+      return res.status(500).json({ 
+        message: 'Failed to send email, please try again later' 
+      });
+    }
   } catch (error) {
     console.error('Reset password request error:', error);
-    res.status(500).json({ message: 'Failed to send email or save code', error: error.message });
+    res.status(500).json({ message: 'Server error, please try again' });
   }
 });
-
-
 
 app.post('/api/users/verify-reset-code', async (req, res) => {
   const { email, code } = req.body;
@@ -252,13 +265,18 @@ app.post('/api/users/verify-reset-code', async (req, res) => {
       resetCode: code,
       resetCodeExpires: { $gt: Date.now() },
     });
+
     if (!user) {
       return res.status(400).json({ message: 'Invalid or expired code' });
     }
-    res.status(200).json({ message: 'Code verified' });
+
+    res.status(200).json({ 
+      message: 'Code verified successfully',
+      email: user.email 
+    });
   } catch (error) {
-    console.error('Verify code error:', error.message);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    console.error('Verify code error:', error);
+    res.status(500).json({ message: 'Server error during verification' });
   }
 });
 
@@ -267,19 +285,26 @@ app.post('/api/users/reset-password', async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'Email not found' });
+      return res.status(404).json({ message: 'User not found' });
     }
+
+    if (!user.resetCode) {
+      return res.status(400).json({ message: 'Password reset not requested' });
+    }
+
     user.password = await bcrypt.hash(newPassword, 10);
     user.resetCode = undefined;
     user.resetCodeExpires = undefined;
     await user.save();
-    console.log(`Password reset successful: ${email}`);
+
+    console.log(`Password reset for ${email}`);
     res.status(200).json({ message: 'Password reset successfully' });
   } catch (error) {
-    console.error('Reset password error:', error.message);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Failed to reset password' });
   }
 });
+
 
 app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) => {
   try {
