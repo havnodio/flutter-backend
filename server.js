@@ -3,8 +3,9 @@ const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 require('dotenv').config();
+const nodemailer = require('nodemailer');
+
 
 const app = express();
 app.use(cors({ origin: '*' })); // Explicitly allow all origins
@@ -48,20 +49,19 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASSWORD,
   },
 });
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('Email config error:', error);
-  } else {
-    console.log('✅ Email server is ready to take messages');
-  }
-});
 
-// Verify SMTP connection
-transporter.verify((error, success) => {
+const mailOptions = {
+  from: process.env.EMAIL,
+  to: process.env.EMAIL,
+  subject: 'Test Email from Node.js',
+  text: 'Hello! This is a test email.',
+};
+
+transporter.sendMail(mailOptions, (error, info) => {
   if (error) {
-    console.error('SMTP configuration error:', error.message);
+    console.error('Error sending test email:', error);
   } else {
-    console.log('SMTP server ready');
+    console.log('Test email sent:', info.response);
   }
 });
 
@@ -212,49 +212,36 @@ app.post('/api/users/register', async (req, res) => {
   }
 });
 
-router.post('/reset-password-request', async (req, res) => {
+app.post('/api/users/reset-password-request', async (req, res) => {
   const { email } = req.body;
-
   try {
-    // 1. Check if user exists
+    console.log('Reset password request for email:', email);
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'User not found.' });
+      console.log('User not found:', email);
+      return res.status(404).json({ message: 'Email not found' });
     }
-
-    // 2. Generate a reset code (6-digit)
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // 3. Save the code and expiration (e.g. 15 min) in user document
     user.resetCode = resetCode;
-    user.resetCodeExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min from now
+    user.resetCodeExpires = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    // 4. Send the code by email
-    const mailOptions = {
+    console.log('Sending reset code email with code:', resetCode);
+    await transporter.sendMail({
       from: process.env.EMAIL,
       to: email,
       subject: 'Password Reset Code',
-      html: `
-        <div style="font-family: Arial; font-size: 16px;">
-          <p>Hello <b>${user.fullName || ''}</b>,</p>
-          <p>Your password reset code is:</p>
-          <h2 style="color: #007bff;">${resetCode}</h2>
-          <p>This code will expire in 15 minutes.</p>
-        </div>
-      `
-    };
+      text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log('✅ Reset code email sent to:', email);
-
-    return res.status(200).json({ message: 'Reset code sent successfully.' });
-
+    console.log('Email sent successfully to:', email);
+    res.status(200).json({ message: 'Code sent to email' });
   } catch (error) {
-    console.error('❌ Error in reset-password-request:', error);
-    return res.status(500).json({ message: 'Failed to send reset code.', error: error.message });
+    console.error('Reset password request error:', error);
+    res.status(500).json({ message: 'Failed to send email or save code', error: error.message });
   }
 });
+
 
 
 app.post('/api/users/verify-reset-code', async (req, res) => {
