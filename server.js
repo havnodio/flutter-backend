@@ -48,6 +48,13 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASSWORD,
   },
 });
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('Email config error:', error);
+  } else {
+    console.log('✅ Email server is ready to take messages');
+  }
+});
 
 // Verify SMTP connection
 transporter.verify((error, success) => {
