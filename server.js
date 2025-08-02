@@ -212,35 +212,50 @@ app.post('/api/users/register', async (req, res) => {
   }
 });
 
-app.post('/api/users/reset-password-request', async (req, res) => {
+router.post('/reset-password-request', async (req, res) => {
   const { email } = req.body;
+
   try {
+    // 1. Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'Email not found' });
+      return res.status(404).json({ message: 'User not found.' });
     }
+
+    // 2. Generate a reset code (6-digit)
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 3. Save the code and expiration (e.g. 15 min) in user document
     user.resetCode = resetCode;
-    user.resetCodeExpires = Date.now() + 3600000;
+    user.resetCodeExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min from now
     await user.save();
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL,
-        to: email,
-        subject: 'Password Reset Code',
-        text: `Your password reset code is: ${resetCode}. It is valid for 1 hour.`,
-      });
-      console.log(`Reset code sent: { email: "${email}", code: "${resetCode}" }`);
-      res.status(200).json({ message: 'Code sent to email' });
-    } catch (emailError) {
-      console.error('Email sending error:', emailError.message);
-      res.status(500).json({ message: 'Failed to send email, but code saved' });
-    }
+
+    // 4. Send the code by email
+    const mailOptions = {
+      from: process.env.EMAIL,
+      to: email,
+      subject: 'Password Reset Code',
+      html: `
+        <div style="font-family: Arial; font-size: 16px;">
+          <p>Hello <b>${user.fullName || ''}</b>,</p>
+          <p>Your password reset code is:</p>
+          <h2 style="color: #007bff;">${resetCode}</h2>
+          <p>This code will expire in 15 minutes.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('✅ Reset code email sent to:', email);
+
+    return res.status(200).json({ message: 'Reset code sent successfully.' });
+
   } catch (error) {
-    console.error('Reset password request error:', error.message);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    console.error('❌ Error in reset-password-request:', error);
+    return res.status(500).json({ message: 'Failed to send reset code.', error: error.message });
   }
 });
+
 
 app.post('/api/users/verify-reset-code', async (req, res) => {
   const { email, code } = req.body;
