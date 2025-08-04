@@ -522,7 +522,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
     // Validation
     if (!products || !Array.isArray(products) || products.length === 0) {
-      return res.status(400).json({ message: 'At least one product is required' });
+      console.log('Invalid products array:', products);
+      return res.status(400).json({ message: 'Products must be an array' });
     }
     if (!clientId || !deliveryDate || !paymentType) {
       return res.status(400).json({ message: 'Client, delivery date, and payment type are required' });
@@ -606,8 +607,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     }
 
   } catch (err) {
-    console.error('Create order error:', err.message);
-    res.status(500).json({ message: 'Server error: ' + err.message });
+    console.error('Full error:', err);
+    res.status(500).json({ message: err.message });
   }
 });
 
