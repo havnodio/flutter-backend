@@ -96,6 +96,7 @@ const clientSchema = new mongoose.Schema({
 const Client = mongoose.model('Client', clientSchema);
 
 const orderSchema = new mongoose.Schema({
+<<<<<<< HEAD
   clientId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Client',
@@ -133,6 +134,21 @@ const Order = mongoose.model('Order', orderSchema);
 
 module.exports = Order;
 
+=======
+  products: [{
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    quantity: { type: Number, required: true, min: 1 },
+    price: { type: Number, required: true, min: 0 }
+  }],
+  clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
+  deliveryDate: { type: Date, required: true },
+  paymentType: { type: String, required: true, enum: ['Cash', 'Credit Card', 'Bank Transfer'] },
+  status: { type: String, required: true, enum: ['Pending', 'Confirmed', 'Delivered'], default: 'Pending' },
+  totalAmount: { type: Number, required: true, min: 0 }
+}, { timestamps: true });
+const Order = mongoose.model('Order', orderSchema);
+
+>>>>>>> f3af17a89c5c685b95db65c5e585a0e3ea022f78
 // Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.header('Authorization');
@@ -466,12 +482,22 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
 arouter.get('/api/clients', authMiddleware, async (req, res) => {
   try {
     const clients = await Client.find();
     res.status(200).json(clients);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
+=======
+app.get('/api/clients', authenticateToken, async (req, res) => {
+  try {
+    const clients = await Client.find();
+    res.status(200).json(clients);
+  } catch (err) {
+    console.error('Get clients error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+>>>>>>> f3af17a89c5c685b95db65c5e585a0e3ea022f78
   }
 });
 
@@ -479,6 +505,7 @@ arouter.get('/api/clients', authMiddleware, async (req, res) => {
 router.post('/api/clients', authMiddleware, async (req, res) => {
   try {
     const { fullName, number, email, fiscalNumber } = req.body;
+<<<<<<< HEAD
     if (!fullName || !fiscalNumber) {
       return res.status(400).json({ message: 'Full name and fiscal number are required' });
     }
@@ -627,6 +654,332 @@ router.delete('/api/orders/:id', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+=======
+    console.log('Received client data:', { fullName, number, email, fiscalNumber });
+    if (!fullName || !fiscalNumber) {
+      return res.status(400).json({ message: 'Full name and fiscal number required' });
+    }
+    const client = new Client({ fullName, number, email, fiscalNumber });
+    await client.save();
+    res.status(201).json({ message: 'Client added', client });
+  } catch (err) {
+    console.error('Add client error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+app.put('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const { fullName, number, email, fiscalNumber } = req.body;
+    console.log('Received update client data:', { fullName, number, email, fiscalNumber });
+    if (!fullName || !fiscalNumber) {
+      return res.status(400).json({ message: 'Full name and fiscal number required' });
+    }
+    const client = await Client.findByIdAndUpdate(
+      req.params.id,
+      { fullName, number, email, fiscalNumber },
+      { new: true }
+    );
+    if (!client) {
+      return res.status(404).json({ message: 'Client not found' });
+    }
+    res.status(200).json({ message: 'Client updated', client });
+  } catch (err) {
+    console.error('Update client error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const client = await Client.findById(req.params.id);
+    if (!client) {
+      return res.status(404).json({ message: 'Client not found' });
+    }
+    await Client.deleteOne({ _id: req.params.id });
+    res.status(200).json({ message: 'Client deleted' });
+  } catch (err) {
+    console.error('Delete client error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const orders = await Order.find()
+      .populate('products.productId', 'name description category')
+      .populate('clientId', 'fullName email phone');
+    res.status(200).json(orders);
+  } catch (err) {
+    console.error('Get orders error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+app.post('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const { products, clientId, deliveryDate, paymentType, status } = req.body;
+
+    // Validation
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      console.log('Invalid products array:', products);
+      return res.status(400).json({ message: 'Products must be an array' });
+    }
+    if (!clientId || !deliveryDate || !paymentType) {
+      return res.status(400).json({ message: 'Client, delivery date, and payment type are required' });
+    }
+
+    // Check client exists
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ message: 'Client not found' });
+    }
+
+    // Process products
+    let totalAmount = 0;
+    const productUpdates = [];
+    const validatedProducts = [];
+
+    for (const item of products) {
+      if (!item.productId || !item.quantity || item.quantity < 1) {
+        return res.status(400).json({ message: 'Invalid product data' });
+      }
+
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(404).json({ message: `Product ${item.productId} not found` });
+      }
+      if (product.quantity < item.quantity) {
+        return res.status(400).json({ 
+          message: `Insufficient stock for ${product.name}. Available: ${product.quantity}`
+        });
+      }
+
+      // Calculate price (use product price if not provided in request)
+      const price = item.price || product.price;
+      totalAmount += price * item.quantity;
+
+      validatedProducts.push({
+        productId: product._id,
+        quantity: item.quantity,
+        price: price
+      });
+
+      // Prepare inventory update
+      productUpdates.push({
+        updateOne: {
+          filter: { _id: product._id },
+          update: { $inc: { quantity: -item.quantity } }
+        }
+      });
+    }
+
+    // Create order
+    const order = new Order({
+      products: validatedProducts,
+      clientId,
+      deliveryDate,
+      paymentType,
+      status: status || 'Pending',
+      totalAmount
+    });
+
+    // Execute all operations in a transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      await order.save({ session });
+      await Product.bulkWrite(productUpdates, { session });
+      await session.commitTransaction();
+      session.endSession();
+
+      // Populate the created order for response
+      const populatedOrder = await Order.findById(order._id)
+        .populate('products.productId', 'name description category')
+        .populate('clientId', 'fullName email phone');
+
+      res.status(201).json({ message: 'Order created successfully', order: populatedOrder });
+    } catch (err) {
+      await session.abortTransaction();
+      session.endSession();
+      throw err;
+    }
+
+  } catch (err) {
+    console.error('Full error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const { products, clientId, deliveryDate, paymentType, status } = req.body;
+    const orderId = req.params.id;
+
+    // Validation
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: 'At least one product is required' });
+    }
+    if (!clientId || !deliveryDate || !paymentType || !status) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Check client exists
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ message: 'Client not found' });
+    }
+
+    // Get existing order to restore stock if needed
+    const existingOrder = await Order.findById(orderId);
+    if (!existingOrder) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // Process products
+    let totalAmount = 0;
+    const productUpdates = [];
+    const validatedProducts = [];
+
+    // First restore quantities from existing order
+    for (const existingItem of existingOrder.products) {
+      productUpdates.push({
+        updateOne: {
+          filter: { _id: existingItem.productId },
+          update: { $inc: { quantity: existingItem.quantity } }
+        }
+      });
+    }
+
+    // Then process new quantities
+    for (const item of products) {
+      if (!item.productId || !item.quantity || item.quantity < 1) {
+        return res.status(400).json({ message: 'Invalid product data' });
+      }
+
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(404).json({ message: `Product ${item.productId} not found` });
+      }
+      if (product.quantity < item.quantity) {
+        return res.status(400).json({ 
+          message: `Insufficient stock for ${product.name}. Available: ${product.quantity}`
+        });
+      }
+
+      // Calculate price (use product price if not provided in request)
+      const price = item.price || product.price;
+      totalAmount += price * item.quantity;
+
+      validatedProducts.push({
+        productId: product._id,
+        quantity: item.quantity,
+        price: price
+      });
+
+      // Prepare inventory update
+      productUpdates.push({
+        updateOne: {
+          filter: { _id: product._id },
+          update: { $inc: { quantity: -item.quantity } }
+        }
+      });
+    }
+
+    // Update order in transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Update product quantities
+      await Product.bulkWrite(productUpdates, { session });
+
+      // Update order
+      const updatedOrder = await Order.findByIdAndUpdate(
+        orderId,
+        {
+          products: validatedProducts,
+          clientId,
+          deliveryDate,
+          paymentType,
+          status,
+          totalAmount
+        },
+        { new: true, session }
+      ).populate('products.productId', 'name description category')
+       .populate('clientId', 'fullName email phone');
+
+      await session.commitTransaction();
+      session.endSession();
+
+      res.status(200).json({ message: 'Order updated successfully', order: updatedOrder });
+    } catch (err) {
+      await session.abortTransaction();
+      session.endSession();
+      throw err;
+    }
+
+  } catch (err) {
+    console.error('Update order error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Get order first to restore product quantities
+      const order = await Order.findById(orderId).session(session);
+      if (!order) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      // Prepare product quantity updates
+      const productUpdates = order.products.map(item => ({
+        updateOne: {
+          filter: { _id: item.productId },
+          update: { $inc: { quantity: item.quantity } }
+        }
+      }));
+
+      // Restore product quantities
+      if (productUpdates.length > 0) {
+        await Product.bulkWrite(productUpdates, { session });
+      }
+
+      // Delete the order
+      await Order.deleteOne({ _id: orderId }).session(session);
+
+      await session.commitTransaction();
+      session.endSession();
+
+      res.status(200).json({ message: 'Order deleted successfully' });
+    } catch (err) {
+      await session.abortTransaction();
+      session.endSession();
+      throw err;
+    }
+
+  } catch (err) {
+    console.error('Delete order error:', err.message);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unexpected error:', err.stack);
+  res.status(500).json({ message: 'Unexpected server error', error: err.message });
+});
+
+>>>>>>> f3af17a89c5c685b95db65c5e585a0e3ea022f78
 // Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
