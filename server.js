@@ -7,7 +7,7 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
-app.use(cors({ origin: '*' })); // Explicitly allow all origins
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // Test route for debugging
@@ -26,12 +26,11 @@ const connectDB = async () => {
     console.log('Connected to MongoDB');
   } catch (err) {
     console.error('MongoDB connection error:', err.message);
-    setTimeout(connectDB, 5000); // Retry after 5 seconds
+    setTimeout(connectDB, 5000);
   }
 };
 connectDB();
 
-// Handle MongoDB connection errors
 mongoose.connection.on('error', (err) => {
   console.error('MongoDB connection error:', err.message);
 });
@@ -40,16 +39,15 @@ mongoose.connection.on('disconnected', () => {
   connectDB();
 });
 
-// Nodemailer configuration for Gmail
+// Nodemailer configuration
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL || 'metjihed@gmail.com',
-    pass: process.env.EMAIL_PASSWORD || 'xstp vyjs xahh stkc'
+    pass: process.env.EMAIL_PASSWORD || 'xstp vyjs xahh stkc',
   },
 });
 
-// Verify SMTP connection on startup
 transporter.verify((error, success) => {
   if (error) {
     console.error('SMTP configuration error:', error);
@@ -83,7 +81,7 @@ const AccountRequest = mongoose.model('AccountRequest', accountRequestSchema);
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
   quantity: { type: Number, required: true, min: 0 },
-  price: { type: Number, required: true, min: 0 }, // Added price field
+  price: { type: Number, required: true, min: 0 },
 });
 const Product = mongoose.model('Product', productSchema);
 
@@ -95,35 +93,35 @@ const clientSchema = new mongoose.Schema({
 });
 const Client = mongoose.model('Client', clientSchema);
 
+const orderProductSchema = new mongoose.Schema({
+  productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+  quantity: { type: Number, required: true, min: 1 },
+  price: { type: Number, required: true, min: 0 },
+});
+
 const orderSchema = new mongoose.Schema({
-  products: [{
-    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-    quantity: { type: Number, required: true, min: 1 },
-    price: { type: Number, required: true, min: 0 }
-  }],
+  products: [orderProductSchema],
   clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
   deliveryDate: { type: Date, required: true },
-  paymentType: { type: String, required: true, enum: ['Cash', 'Credit Card', 'Bank Transfer'] },
-  status: { type: String, required: true, enum: ['Pending', 'Confirmed', 'Delivered'], default: 'Pending' },
-  totalAmount: { type: Number, required: true, min: 0 }
-}, { timestamps: true });
+  paymentType: { type: String, enum: ['Cash', 'Credit Card', 'Bank Transfer'], required: true },
+  status: { type: String, enum: ['Pending', 'Confirmed', 'Delivered'], default: 'Pending' },
+  totalAmount: { type: Number, required: true, min: 0 },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
 const Order = mongoose.model('Order', orderSchema);
 
 // Middleware
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.header('Authorization');
-  if (!authHeader) {
-    console.log('No Authorization header provided');
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  const token = authHeader.replace('Bearer ', '');
+  const token = req.header('Authorization')?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    req.user = decoded; // { userId, role }
     next();
-  } catch (err) {
-    console.error('Invalid token:', err.message);
-    res.status(403).json({ message: 'Invalid token' });
+  } catch (error) {
+    console.error('Token verification error:', error.message);
+    res.status(401).json({ message: 'Invalid token' });
   }
 };
 
@@ -158,7 +156,11 @@ app.post('/api/login', async (req, res) => {
       console.log('Password mismatch for:', email);
       return res.status(401).json({ message: 'Invalid email or password' });
     }
-    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(
+      { userId: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
     res.status(200).json({ token });
   } catch (err) {
     console.error('Login error:', err.message);
@@ -218,12 +220,10 @@ app.post('/api/users/reset-password-request', async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'If this email exists, a reset code has been sent' });
     }
-
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetCode = resetCode;
-    user.resetCodeExpires = Date.now() + 3600000; // 1 hour
+    user.resetCodeExpires = Date.now() + 3600000;
     await user.save();
-
     try {
       const mailOptions = {
         from: `"Your App Name" <${process.env.EMAIL}>`,
@@ -241,9 +241,8 @@ app.post('/api/users/reset-password-request', async (req, res) => {
             <p>This code will expire in 1 hour.</p>
             <p>If you didn't request this, please ignore this email.</p>
           </div>
-        `
+        `,
       };
-
       await transporter.sendMail(mailOptions);
       console.log(`Reset code sent to ${email}`);
       res.status(200).json({ message: 'Reset code sent to email' });
@@ -252,9 +251,7 @@ app.post('/api/users/reset-password-request', async (req, res) => {
       user.resetCode = undefined;
       user.resetCodeExpires = undefined;
       await user.save();
-      return res.status(500).json({ 
-        message: 'Failed to send email, please try again later' 
-      });
+      return res.status(500).json({ message: 'Failed to send email, please try again later' });
     }
   } catch (error) {
     console.error('Reset password request error:', error);
@@ -270,15 +267,10 @@ app.post('/api/users/verify-reset-code', async (req, res) => {
       resetCode: code,
       resetCodeExpires: { $gt: Date.now() },
     });
-
     if (!user) {
       return res.status(400).json({ message: 'Invalid or expired code' });
     }
-
-    res.status(200).json({ 
-      message: 'Code verified successfully',
-      email: user.email 
-    });
+    res.status(200).json({ message: 'Code verified successfully', email: user.email });
   } catch (error) {
     console.error('Verify code error:', error);
     res.status(500).json({ message: 'Server error during verification' });
@@ -292,16 +284,13 @@ app.post('/api/users/reset-password', async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-
     if (!user.resetCode) {
       return res.status(400).json({ message: 'Password reset not requested' });
     }
-
     user.password = await bcrypt.hash(newPassword, 10);
     user.resetCode = undefined;
     user.resetCodeExpires = undefined;
     await user.save();
-
     console.log(`Password reset for ${email}`);
     res.status(200).json({ message: 'Password reset successfully' });
   } catch (error) {
@@ -309,7 +298,6 @@ app.post('/api/users/reset-password', async (req, res) => {
     res.status(500).json({ message: 'Failed to reset password' });
   }
 });
-
 
 app.get('/api/account-requests', authenticateToken, isAdmin, async (req, res) => {
   try {
@@ -382,7 +370,10 @@ app.delete('/api/account-requests/cleanup', authenticateToken, isAdmin, async (r
 
 app.get('/api/products', authenticateToken, async (req, res) => {
   try {
-    const products = await Product.find();
+    const query = req.query.search
+      ? { name: { $regex: req.query.search, $options: 'i' } }
+      : {};
+    const products = await Product.find(query).select('name price quantity');
     res.status(200).json(products);
   } catch (err) {
     console.error('Get products error:', err.message);
@@ -444,7 +435,16 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
 
 app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
-    const clients = await Client.find();
+    const query = req.query.search
+      ? {
+          $or: [
+            { fullName: { $regex: req.query.search, $options: 'i' } },
+            { email: { $regex: req.query.search, $options: 'i' } },
+            { fiscalNumber: { $regex: req.query.search, $options: 'i' } },
+          ],
+        }
+      : {};
+    const clients = await Client.find(query).select('fullName email number fiscalNumber');
     res.status(200).json(clients);
   } catch (err) {
     console.error('Get clients error:', err.message);
@@ -504,272 +504,49 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/orders', authenticateToken, async (req, res) => {
+app.get('/api/orders', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const orders = await Order.find()
-      .populate('products.productId', 'name description category')
-      .populate('clientId', 'fullName email phone');
-    res.status(200).json(orders);
-  } catch (err) {
-    console.error('Get orders error:', err.message);
-    res.status(500).json({ message: 'Server error: ' + err.message });
+    const orders = await Order.find().populate('clientId', 'fullName email fiscalNumber').lean();
+    res.json(orders);
+  } catch (error) {
+    console.error('Get orders error:', error.message);
+    res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
-app.post('/api/orders', authenticateToken, async (req, res) => {
+app.post('/api/orders', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { products, clientId, deliveryDate, paymentType, status } = req.body;
-
-    // Validation
-    if (!products || !Array.isArray(products) || products.length === 0) {
-      console.log('Invalid products array:', products);
-      return res.status(400).json({ message: 'Products must be an array' });
+    console.log('Received order data:', { products, clientId, deliveryDate, paymentType, status });
+    if (!products || !clientId || !deliveryDate || !paymentType) {
+      return res.status(400).json({ message: 'Products, clientId, deliveryDate, and paymentType required' });
     }
-    if (!clientId || !deliveryDate || !paymentType) {
-      return res.status(400).json({ message: 'Client, delivery date, and payment type are required' });
-    }
-
-    // Check client exists
     const client = await Client.findById(clientId);
-    if (!client) {
-      return res.status(404).json({ message: 'Client not found' });
-    }
+    if (!client) return res.status(404).json({ message: 'Client not found' });
 
-    // Process products
     let totalAmount = 0;
-    const productUpdates = [];
-    const validatedProducts = [];
-
-    for (const item of products) {
-      if (!item.productId || !item.quantity || item.quantity < 1) {
-        return res.status(400).json({ message: 'Invalid product data' });
-      }
-
-      const product = await Product.findById(item.productId);
-      if (!product) {
-        return res.status(404).json({ message: `Product ${item.productId} not found` });
-      }
-      if (product.quantity < item.quantity) {
-        return res.status(400).json({ 
-          message: `Insufficient stock for ${product.name}. Available: ${product.quantity}`
-        });
-      }
-
-      // Calculate price (use product price if not provided in request)
-      const price = item.price || product.price;
-      totalAmount += price * item.quantity;
-
-      validatedProducts.push({
-        productId: product._id,
-        quantity: item.quantity,
-        price: price
-      });
-
-      // Prepare inventory update
-      productUpdates.push({
-        updateOne: {
-          filter: { _id: product._id },
-          update: { $inc: { quantity: -item.quantity } }
-        }
-      });
+    for (const p of products) {
+      const product = await Product.findById(p.productId);
+      if (!product) return res.status(404).json({ message: `Product ${p.productId} not found` });
+      if (product.quantity < p.quantity) return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
+      if (p.price !== product.price) return res.status(400).json({ message: `Price mismatch for ${product.name}` });
+      totalAmount += p.quantity * p.price;
     }
 
-    // Create order
     const order = new Order({
-      products: validatedProducts,
+      products,
       clientId,
       deliveryDate,
       paymentType,
       status: status || 'Pending',
-      totalAmount
+      totalAmount,
     });
 
-    // Execute all operations in a transaction
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-      await order.save({ session });
-      await Product.bulkWrite(productUpdates, { session });
-      await session.commitTransaction();
-      session.endSession();
-
-      // Populate the created order for response
-      const populatedOrder = await Order.findById(order._id)
-        .populate('products.productId', 'name description category')
-        .populate('clientId', 'fullName email phone');
-
-      res.status(201).json({ message: 'Order created successfully', order: populatedOrder });
-    } catch (err) {
-      await session.abortTransaction();
-      session.endSession();
-      throw err;
-    }
-
-  } catch (err) {
-    console.error('Full error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-app.put('/api/orders/:id', authenticateToken, async (req, res) => {
-  try {
-    const { products, clientId, deliveryDate, paymentType, status } = req.body;
-    const orderId = req.params.id;
-
-    // Validation
-    if (!products || !Array.isArray(products) || products.length === 0) {
-      return res.status(400).json({ message: 'At least one product is required' });
-    }
-    if (!clientId || !deliveryDate || !paymentType || !status) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
-
-    // Check client exists
-    const client = await Client.findById(clientId);
-    if (!client) {
-      return res.status(404).json({ message: 'Client not found' });
-    }
-
-    // Get existing order to restore stock if needed
-    const existingOrder = await Order.findById(orderId);
-    if (!existingOrder) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    // Process products
-    let totalAmount = 0;
-    const productUpdates = [];
-    const validatedProducts = [];
-
-    // First restore quantities from existing order
-    for (const existingItem of existingOrder.products) {
-      productUpdates.push({
-        updateOne: {
-          filter: { _id: existingItem.productId },
-          update: { $inc: { quantity: existingItem.quantity } }
-        }
-      });
-    }
-
-    // Then process new quantities
-    for (const item of products) {
-      if (!item.productId || !item.quantity || item.quantity < 1) {
-        return res.status(400).json({ message: 'Invalid product data' });
-      }
-
-      const product = await Product.findById(item.productId);
-      if (!product) {
-        return res.status(404).json({ message: `Product ${item.productId} not found` });
-      }
-      if (product.quantity < item.quantity) {
-        return res.status(400).json({ 
-          message: `Insufficient stock for ${product.name}. Available: ${product.quantity}`
-        });
-      }
-
-      // Calculate price (use product price if not provided in request)
-      const price = item.price || product.price;
-      totalAmount += price * item.quantity;
-
-      validatedProducts.push({
-        productId: product._id,
-        quantity: item.quantity,
-        price: price
-      });
-
-      // Prepare inventory update
-      productUpdates.push({
-        updateOne: {
-          filter: { _id: product._id },
-          update: { $inc: { quantity: -item.quantity } }
-        }
-      });
-    }
-
-    // Update order in transaction
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-      // Update product quantities
-      await Product.bulkWrite(productUpdates, { session });
-
-      // Update order
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        {
-          products: validatedProducts,
-          clientId,
-          deliveryDate,
-          paymentType,
-          status,
-          totalAmount
-        },
-        { new: true, session }
-      ).populate('products.productId', 'name description category')
-       .populate('clientId', 'fullName email phone');
-
-      await session.commitTransaction();
-      session.endSession();
-
-      res.status(200).json({ message: 'Order updated successfully', order: updatedOrder });
-    } catch (err) {
-      await session.abortTransaction();
-      session.endSession();
-      throw err;
-    }
-
-  } catch (err) {
-    console.error('Update order error:', err.message);
-    res.status(500).json({ message: 'Server error: ' + err.message });
-  }
-});
-app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
-  try {
-    const orderId = req.params.id;
-    
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-      // Get order first to restore product quantities
-      const order = await Order.findById(orderId).session(session);
-      if (!order) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(404).json({ message: 'Order not found' });
-      }
-
-      // Prepare product quantity updates
-      const productUpdates = order.products.map(item => ({
-        updateOne: {
-          filter: { _id: item.productId },
-          update: { $inc: { quantity: item.quantity } }
-        }
-      }));
-
-      // Restore product quantities
-      if (productUpdates.length > 0) {
-        await Product.bulkWrite(productUpdates, { session });
-      }
-
-      // Delete the order
-      await Order.deleteOne({ _id: orderId }).session(session);
-
-      await session.commitTransaction();
-      session.endSession();
-
-      res.status(200).json({ message: 'Order deleted successfully' });
-    } catch (err) {
-      await session.abortTransaction();
-      session.endSession();
-      throw err;
-    }
-
-  } catch (err) {
-    console.error('Delete order error:', err.message);
-    res.status(500).json({ message: 'Server error: ' + err.message });
+    await order.save();
+    res.status(201).json({ order });
+  } catch (error) {
+    console.error('Create order error:', error.message);
+    res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
