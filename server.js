@@ -125,6 +125,7 @@ const Order = mongoose.model('Order', orderSchema);
 // Middleware
 const authenticateToken = (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
+  console.log('Received token:', token ? token.substring(0, 10) + '...' : 'No token');
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -132,7 +133,7 @@ const authenticateToken = (req, res, next) => {
     next();
   } catch (error) {
     console.error('Token verification error:', error.message);
-    res.status(401).json({ message: 'Invalid token' });
+    res.status(401).json({ message: 'Invalid or expired token' });
   }
 };
 
