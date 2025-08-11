@@ -848,14 +848,9 @@ app.get('/api/orders/stats/summary', authenticateToken, async (req, res) => {
 });
 
 // Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unexpected error:', err.stack);
-  res.status(500).json({ message: 'Unexpected server error', error: err.message });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
 });
 
 // Graceful shutdown
