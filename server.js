@@ -108,7 +108,7 @@ const orderSchema = new mongoose.Schema({
   clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
   deliveryDate: { type: Date, required: true },
   paymentType: { type: String, enum: ['Cash', 'Credit Card', 'Bank Transfer'], required: true },
-  status: { type: String, enum: ['Pending', 'Confirmed', 'Delivered'], default: 'Pending' },
+  status: { type: String, enum: ['Pending', 'Confirmed', 'Delivered', 'Cancelled'], default: 'Pending' },
   totalAmount: { type: Number, required: true, min: 0 },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -731,19 +731,21 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
-    
-    if (!['Pending', 'Confirmed', 'Delivered'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be Pending, Confirmed, or Delivered' });
+    console.log('Received status update for order ID:', req.params.id, 'Status:', status); // Debug log
+    if (!['Pending', 'Confirmed', 'Delivered', 'Cancelled'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status. Must be Pending, Confirmed, Delivered, or Cancelled' });
     }
 
     const order = await Order.findByIdAndUpdate(
       req.params.id,
       { status, updatedAt: new Date() },
       { new: true }
-    ).populate('clientId', 'fullName email number fiscalNumber')
-     .populate('products.productId', 'name price');
+    )
+      .populate('clientId', 'fullName email number fiscalNumber')
+      .populate('products.productId', 'name price');
 
     if (!order) {
+      console.log('Order not found for ID:', req.params.id); // Debug log
       return res.status(404).json({ message: 'Order not found' });
     }
 
@@ -753,7 +755,6 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
-
 // ADDED: Delete order endpoint (with stock restoration)
 app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
   const session = await mongoose.startSession();
